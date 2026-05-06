@@ -11,6 +11,7 @@ data/
 artifacts/
 checkpoints/
 models/
+outputs/
 runs/
 wandb/
 
