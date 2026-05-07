@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import pickle
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 import torch
+import xarray as xr
 
 from weather_research.aardvark_compat import (
     ConvCNPWeather,
@@ -15,20 +17,27 @@ from weather_research.aardvark_compat import (
     redirect_cuda_to_device,
 )
 from weather_research.aardvark_observations import load_aardvark_observation_sample
-from weather_research.project_paths import AARDVARK_DATA_DIR, AARDVARK_TRAINED_MODELS_DIR
+from weather_research.project_paths import (
+    AARDVARK_DATA_DIR,
+    AARDVARK_TRAINED_MODELS_DIR,
+)
 from weather_research.weather_state_schema import (
     AARDVARK_STATE_SHAPE,
     AardvarkInitialCondition,
 )
+from weather_research.weather_state_xarray import initial_conditions_to_dataset
 
 DevicePreference = Literal["auto", "cuda", "cpu"]
+type SampleTime = tuple[Path | str, np.datetime64 | str]
 
 
 def choose_compute_device(preference: DevicePreference = "auto") -> str:
     """Choose CUDA when available, otherwise CPU, for Aardvark IC generation."""
     if preference == "cuda":
         if not torch.cuda.is_available():
-            raise RuntimeError("CUDA was requested, but torch.cuda.is_available() is false.")
+            raise RuntimeError(
+                "CUDA was requested, but torch.cuda.is_available() is false."
+            )
         return "cuda"
     if preference == "cpu":
         return "cpu"
@@ -72,7 +81,9 @@ def load_aardvark_encoder(
     best_epoch = int(np.argmin(np.load(losses_path)))
     checkpoint_path = encoder_path / f"epoch_{best_epoch}"
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Missing Aardvark encoder checkpoint: {checkpoint_path}")
+        raise FileNotFoundError(
+            f"Missing Aardvark encoder checkpoint: {checkpoint_path}"
+        )
 
     checkpoint = torch.load(
         checkpoint_path,
@@ -91,7 +102,11 @@ def _normalization_tensor(name: str, device: str) -> torch.Tensor:
     return torch.Tensor(values).float().to(device).reshape(1, 1, 1, -1)
 
 
-def unnormalize_encoder_output(encoded_state: torch.Tensor, *, device: str) -> torch.Tensor:
+def unnormalize_encoder_output(
+    encoded_state: torch.Tensor,
+    *,
+    device: str,
+) -> torch.Tensor:
     """Convert normalized encoder output into Aardvark's physical IC-like state."""
     means = _normalization_tensor("mean_4u_1.npy", device)
     stds = _normalization_tensor("std_4u_1.npy", device)
@@ -143,3 +158,41 @@ def generate_aardvark_initial_condition_from_file(
         variable_names=ic.variable_names,
         source_path=sample.path,
     )
+
+
+def generate_aardvark_initial_condition_dataset_from_files(
+    sample_times: Sequence[SampleTime],
+    *,
+    device_preference: DevicePreference = "auto",
+    encoder: torch.nn.Module | None = None,
+) -> xr.Dataset:
+    """Generate a multi-time IC-like dataset from model-ready observation files.
+
+    Each input sample file represents one assimilation/current time. To build a
+    real multi-time IC dataset, pass one sample file and one timestamp per time.
+    """
+    if len(sample_times) == 0:
+        raise ValueError("Expected at least one sample/time pair.")
+
+    device = choose_compute_device(device_preference)
+    model = encoder or load_aardvark_encoder(device=device)
+    initial_conditions: list[AardvarkInitialCondition] = []
+    times: list[np.datetime64 | str] = []
+
+    for sample_path, time in sample_times:
+        sample = load_aardvark_observation_sample(sample_path)
+        ic = generate_aardvark_initial_condition(
+            sample.payload,
+            encoder=model,
+            device=device,
+        )
+        initial_conditions.append(
+            AardvarkInitialCondition(
+                values=ic.values,
+                variable_names=ic.variable_names,
+                source_path=sample.path,
+            )
+        )
+        times.append(time)
+
+    return initial_conditions_to_dataset(initial_conditions, times=times)

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +24,7 @@ def initial_condition_to_dataset(
     weatherbench_names: bool = True,
 ) -> xr.Dataset:
     """Convert an Aardvark IC-like state into a WeatherBench-style xarray dataset."""
-    output_time = time or np.datetime64(datetime.now(timezone.utc).replace(tzinfo=None))
+    output_time = time or np.datetime64(datetime.now(UTC).replace(tzinfo=None))
     latitudes = aardvark_latitudes()
     longitudes = aardvark_longitudes()
     values = initial_condition.values
@@ -63,6 +64,39 @@ def initial_condition_to_dataset(
         },
     )
     return dataset
+
+
+def initial_conditions_to_dataset(
+    initial_conditions: Sequence[AardvarkInitialCondition],
+    *,
+    times: Sequence[np.datetime64 | str],
+    weatherbench_names: bool = True,
+) -> xr.Dataset:
+    """Convert multiple Aardvark IC-like states into one time-indexed dataset."""
+    if len(initial_conditions) != len(times):
+        raise ValueError(
+            "Initial condition count must match time count: "
+            f"{len(initial_conditions)} ICs, {len(times)} times."
+        )
+    if len(initial_conditions) == 0:
+        raise ValueError("Expected at least one initial condition.")
+
+    datasets = [
+        initial_condition_to_dataset(
+            initial_condition,
+            time=np.datetime64(time),
+            weatherbench_names=weatherbench_names,
+        )
+        for initial_condition, time in zip(initial_conditions, times, strict=True)
+    ]
+    combined = xr.concat(datasets, dim="time").sortby("time")
+    combined.attrs["source"] = "Multiple Aardvark observation samples"
+    combined.attrs["source_paths"] = [
+        str(initial_condition.source_path)
+        for initial_condition in initial_conditions
+        if initial_condition.source_path is not None
+    ]
+    return combined
 
 
 def save_initial_condition_zarr(
