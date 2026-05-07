@@ -1,0 +1,39 @@
+[pipeline]
+name = "pipeline_a_debug"
+kind = "aardvark"
+
+[device]
+preference = "auto"
+
+[dates]
+# Hugging Face Aardvark training data is documented for 2007-2019, not 2024-2026.
+train_start = "2007-01-02T00:00:00"
+train_end = "2007-02-28T18:00:00"
+val_start = "2019-01-01T00:00:00"
+val_end = "2019-01-14T18:00:00"
+frequency = "6h"
+
+[paths]
+hf_observation_root = "encoder/data/raw/aardvark_hf/training_data"
+weatherbench_era5 = "gs://weatherbench2/datasets/era5/1959-2023_01_10-6h-240x121_equiangular_with_poles_conservative.zarr"
+weatherbench_climatology = "gs://weatherbench2/datasets/era5-hourly-climatology/1990-2019_6h_240x121_equiangular_with_poles_conservative.zarr"
+aardvark_reference_data = "../../Reference-Repo-aardvark-weather-public-main/data"
+output_dir = "encoder/outputs/pipeline_a_debug"
+
+[model]
+in_channels = 277
+out_channels = 24
+int_channels = 24
+resolution = 1
+decoder = "vit_assimilation"
+mode = "assimilation"
+two_frames = false
+
+[training]
+batch_size = 1
+epochs = 1
+learning_rate = 0.0005
+weight_decay = 0.0
+num_workers = 0
+gradient_clip_norm = 1.0
+
