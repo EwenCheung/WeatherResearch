@@ -71,7 +71,7 @@ allow-direct-references = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 
 [tool.pyright]
 include = ["src", "tests"]
@@ -81,6 +81,7 @@ typeCheckingMode = "basic"
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
